@@ -1,346 +1,237 @@
-# BitNest Setup Guide
+# BitNest Quick Setup Guide
 
-<div align="center">
-  <img src="public/logo.svg" alt="BitNest Logo" width="150" height="150"/>
-  <p><i>Complete setup instructions for your self-hosted streaming platform</i></p>
-</div>
+This guide provides simple instructions to get BitNest up and running quickly on your Android device.
 
-## Table of Contents
+## 1. Prerequisites
 
-- [Prerequisites](#prerequisites)
-- [MongoDB Setup](#mongodb-setup)
-- [BitNest Installation](#bitnest-installation)
-- [Security Configuration](#security-configuration)
-- [Accessing BitNest via IP Address](#accessing-bitnest-via-ip-address)
-- [SSL Configuration](#ssl-configuration)
-- [Automatic Updates](#automatic-updates)
-- [Troubleshooting](#troubleshooting)
+- Android device (or any device that can run Node.js)
+- [Termux](https://termux.dev/en/) installed on Android (or Node.js environment on other devices)
+- [Supabase](https://supabase.com/) free account
 
-## Prerequisites
+## 2. Quick Setup
 
-- Android device with [Termux](https://f-droid.org/packages/com.termux/) installed
-- At least 4GB of available storage
-- (Optional) External HDD/SSD connected via USB OTG
-- Internet connection for initial setup
-- Router with port forwarding capability (for remote access)
+### Install Dependencies
 
-## MongoDB Setup
+1. Clone and navigate to the BitNest repository:
+   ```bash
+   git clone https://github.com/yourusername/BitNest.git
+   cd BitNest
+   ```
 
-BitNest uses MongoDB to store metadata about your files, user accounts, and streaming information. The free MongoDB Atlas tier is sufficient for personal use.
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-### Setting up MongoDB Atlas
+### Supabase Setup
 
-1. **Create MongoDB Atlas Account**
-   - Go to [MongoDB Atlas](https://www.mongodb.com/cloud/atlas/register)
-   - Sign up for a free account
+1. Create a free Supabase account at [https://supabase.com/](https://supabase.com/)
+2. Create a new project with any name (e.g., "BitNest")
+3. Go to Project Settings → API to find your:
+   - Project URL
+   - Project API Key (anon, public)
+4. Copy these values for the next step
 
-2. **Create a Free Cluster**
-   - Click "Build a Database"
-   - Select "FREE" tier (M0)
-   - Choose a cloud provider and region closest to you
-   - Click "Create Cluster"
+5. Set up social login (optional but recommended):
+   - In the Supabase dashboard, go to Authentication → Providers
+   - Enable Email/Password, Google, and GitHub providers
+   - For Google authentication, create OAuth credentials in Google Cloud Console
+   - For GitHub authentication, create OAuth app in GitHub Developer Settings
 
-3. **Configure Database Access**
-   - In the sidebar, navigate to "Database Access"
-   - Click "Add New Database User"
-   - Create a username and a strong password
-   - Set "Database User Privileges" to "Read and write to any database"
-   - Click "Add User"
+### Environment Setup
 
-4. **Configure Network Access**
-   - In the sidebar, navigate to "Network Access"
-   - Click "Add IP Address"
-   - For development: Click "Allow Access from Anywhere" (not recommended for production)
-   - For production: Add your Android device's public IP address
-   - Click "Confirm"
+1. Create a `.env.local` file:
+   ```bash
+   cp env.template .env.local
+   ```
 
-5. **Get Connection String**
-   - Go back to "Database" section
-   - Click "Connect"
-   - Select "Connect your application"
-   - Copy the connection string (it should look like: `mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority`)
-   - Replace `<username>` and `<password>` with your actual username and password
+2. Edit the `.env.local` file and replace the Supabase values:
+   ```
+   NEXT_PUBLIC_SUPABASE_URL=your-project-url
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+   ```
 
-## BitNest Installation
+3. Set a random string for NEXTAUTH_SECRET:
+   ```
+   NEXTAUTH_SECRET=random-secret-value
+   ```
 
-### 1. Install Termux
+### Configure Storage
 
-Download and install Termux from [F-Droid](https://f-droid.org/packages/com.termux/).
+BitNest stores files on your local storage. For Android:
 
-### 2. Initial Setup in Termux
+1. Create the storage directory:
+   ```bash
+   mkdir -p /storage/emulated/0/BitNestMedia
+   ```
 
-```bash
-# Update packages
-pkg update -y && pkg upgrade -y
+2. No further configuration needed - BitNest will create all necessary subdirectories automatically.
 
-# Install required packages
-pkg install -y nodejs git ffmpeg wget openssl python cronie
+### Termux Performance Optimization
 
-# Create directory for BitNest
-mkdir -p ~/bitnest
-cd ~/bitnest
+For best performance on your Android device:
 
-# Clone the BitNest repository
-git clone https://github.com/Harry-jain/BitNest.git .
+1. **Use a single Termux session** to run BitNest:
+   - Keep only 1-2 active sessions in Termux to minimize resource usage
+   - Avoid running multiple concurrent processes that may slow down your device
 
-# Switch to main branch (most stable)
-git checkout main
+2. **Session management:**
+   - Run the app in a single session with `npm run dev`
+   - Use `Ctrl+C` to stop the app when not in use
+   - You can press `Ctrl+D` to exit a Termux session when done
+
+3. **Minimize background processes:**
+   - Close other resource-intensive apps while running BitNest
+   - For production use, consider running with `npm run start` which uses less resources than development mode
+
+### Database Setup
+
+Run the following SQL in your Supabase SQL Editor:
+
+```sql
+-- User profiles table (extends Supabase auth)
+CREATE TABLE user_profiles (
+    id UUID PRIMARY KEY REFERENCES auth.users(id),
+    email TEXT NOT NULL,
+    name TEXT,
+    role TEXT DEFAULT 'user',
+    storage_quota BIGINT DEFAULT 10737418240, -- 10GB default
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    last_login_at TIMESTAMP WITH TIME ZONE
+);
+
+-- File records table (metadata only, actual files stored locally)
+CREATE TABLE file_records (
+    id UUID PRIMARY KEY,
+    name TEXT NOT NULL,
+    size BIGINT NOT NULL,
+    type TEXT,
+    path TEXT NOT NULL,
+    user_id UUID NOT NULL REFERENCES auth.users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    is_public BOOLEAN DEFAULT FALSE
+);
+
+-- Video metadata table
+CREATE TABLE video_metadata (
+    id UUID PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    duration INTEGER,
+    format TEXT,
+    qualities JSON,
+    thumbnail_path TEXT,
+    file_id UUID NOT NULL REFERENCES file_records(id),
+    user_id UUID NOT NULL REFERENCES auth.users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
+);
+
+-- System configuration table
+CREATE TABLE system_config (
+    id TEXT PRIMARY KEY,
+    max_users INTEGER DEFAULT 10,
+    default_user_quota BIGINT DEFAULT 10737418240, -- 10GB default
+    total_storage_limit BIGINT DEFAULT 107374182400, -- 100GB default
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
+);
+
+-- Insert default config
+INSERT INTO system_config (id) VALUES ('default');
+
+-- Create admin user function
+CREATE OR REPLACE FUNCTION create_admin_user(admin_email TEXT, admin_password TEXT)
+RETURNS UUID AS $$
+DECLARE
+    admin_id UUID;
+BEGIN
+    -- Sign up the admin user
+    INSERT INTO auth.users (email, encrypted_password, email_confirmed_at, role)
+    VALUES (
+        admin_email,
+        crypt(admin_password, gen_salt('bf')),
+        NOW(),
+        'authenticated'
+    )
+    RETURNING id INTO admin_id;
+    
+    -- Create profile with admin role
+    INSERT INTO user_profiles (id, email, name, role)
+    VALUES (admin_id, admin_email, 'Admin', 'admin');
+    
+    RETURN admin_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Enable Row Level Security
+ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE file_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE video_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE system_config ENABLE ROW LEVEL SECURITY;
+
+-- Add basic policies
+CREATE POLICY "Users can view their own profile" 
+ON user_profiles FOR SELECT USING (auth.uid() = id);
+
+CREATE POLICY "Users can update their own profile"
+ON user_profiles FOR UPDATE USING (auth.uid() = id);
+
+CREATE POLICY "Users can view and manage their own files" 
+ON file_records FOR ALL USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can view and manage their own videos" 
+ON video_metadata FOR ALL USING (auth.uid() = user_id);
+
+-- Admin policies for system_config
+CREATE POLICY "Only admins can view system config"
+ON system_config FOR SELECT
+USING (EXISTS (SELECT 1 FROM user_profiles WHERE id = auth.uid() AND role = 'admin'));
+
+CREATE POLICY "Only admins can update system config"
+ON system_config FOR UPDATE
+USING (EXISTS (SELECT 1 FROM user_profiles WHERE id = auth.uid() AND role = 'admin'));
+
+-- Admin policies for user management
+CREATE POLICY "Admins can view all user profiles"
+ON user_profiles FOR SELECT
+USING (EXISTS (SELECT 1 FROM user_profiles WHERE id = auth.uid() AND role = 'admin'));
+
+CREATE POLICY "Admins can update all user profiles"
+ON user_profiles FOR UPDATE
+USING (EXISTS (SELECT 1 FROM user_profiles WHERE id = auth.uid() AND role = 'admin'));
 ```
 
-### 3. Run the Setup Script
+Create your first admin user by running:
 
-```bash
-# Make setup script executable
-chmod +x scripts/termux-setup.sh
-
-# Run the setup script
-./scripts/termux-setup.sh
+```sql
+SELECT create_admin_user('youremail@example.com', 'secure-password');
 ```
 
-During setup:
-- Enter your MongoDB URI when prompted
-- The script will automatically detect if you have external storage
-- A secure random secret will be generated for authentication
+## 3. Run BitNest
 
-### 4. Start BitNest
-
+Start the development server:
 ```bash
-# Start BitNest with PM2
-~/bitnest-start.sh
-
-# Check logs if needed
-pm2 logs bitnest
+npm run dev
 ```
 
-## Security Configuration
+Access BitNest at:
+- http://localhost:3000 (from the device)
+- http://your-device-ip:3000 (from other devices on the same network)
 
-### 1. User Authentication
+## 4. Production Deployment
 
-BitNest uses a secure JWT-based authentication system with MongoDB. No user can access another user's files.
-
-### 2. Password Security
-
-- Passwords are never stored in plain text
-- All passwords are hashed using bcrypt with salt
-- Password requirements: minimum 8 characters
-
-### 3. Configure Admin User
-
-The first user created becomes the admin. To create your admin account:
-
-1. Start BitNest
-2. Visit the registration page at `http://your-device-ip:3000/auth/register`
-3. Create your admin account
-4. Log in at `http://your-device-ip:3000/auth/login`
-
-### 4. Environment Variables Security
-
-1. Edit the `.env.local` file to set secure values:
-
+For production usage:
 ```bash
-# Edit the environment file with nano
-nano ~/bitnest/.env.local
+npm run build
+npm run start
 ```
-
-2. Ensure the following variables are set with strong values:
-   - `MONGODB_URI` - Your MongoDB connection string
-   - `NEXTAUTH_SECRET` - Should be a long, random string (auto-generated by setup)
-   - `MEDIA_ROOT` - Path to store your media files
-
-### 5. Restrict Remote Access
-
-By default, BitNest is only accessible on your local network. To restrict it further:
-
-```bash
-# Edit the start script
-nano ~/bitnest-start.sh
-
-# Change the start command to only listen on localhost
-# Replace: pm2 start npm --name bitnest -- start
-# With: pm2 start npm --name bitnest -- start -- -H 127.0.0.1
-```
-
-## Accessing BitNest via IP Address
-
-### 1. Find Your Device's IP Address
-
-```bash
-# In Termux, run:
-ip addr show | grep "inet "
-```
-
-Look for the IP address that starts with `192.168.` or `10.` (local network address).
-
-### 2. Local Network Access
-
-- On your device or other devices on the same network, open a browser
-- Navigate to: `http://your-device-ip:3000`
-- Example: `http://192.168.1.100:3000`
-
-### 3. Remote Access Setup (Internet)
-
-To access BitNest from anywhere:
-
-1. **Set a Static IP for your Android device**
-   - In Android settings, go to Wi-Fi
-   - Long-press your connected network
-   - Select "Modify network" → "Advanced options"
-   - Change IP settings from "DHCP" to "Static"
-   - Set a static IP address
-
-2. **Configure Port Forwarding on your Router**
-   - Access your router's admin page (typically http://192.168.1.1)
-   - Find "Port Forwarding" or "Virtual Server" settings
-   - Create a new rule:
-     - Internal IP: Your device's static IP
-     - Internal Port: 3000
-     - External Port: 3000 (or choose another port)
-     - Protocol: TCP
-   - Save the configuration
-
-3. **Find Your Public IP Address**
-   - In Termux, run: `curl ifconfig.me`
-   - Or visit [whatismyip.com](https://www.whatismyip.com/)
-
-4. **Access from the Internet**
-   - From any device, access: `http://your-public-ip:external-port`
-   - Example: `http://203.0.113.42:3000`
-
-## SSL Configuration
-
-Since you'll be accessing BitNest via IP address, you'll need a self-signed certificate:
-
-### 1. Generate Self-Signed Certificate
-
-```bash
-# Run the SSL setup script with your IP address
-cd ~/bitnest
-chmod +x scripts/ssl-setup.sh
-./scripts/ssl-setup.sh 192.168.1.100  # Replace with your IP address
-```
-
-### 2. Configure NGINX with SSL
-
-The SSL setup script will automatically:
-- Generate a self-signed certificate
-- Create an NGINX configuration file
-- Create a startup script for NGINX
-
-### 3. Start NGINX with SSL
-
-```bash
-# Start NGINX with SSL configuration
-~/bitnest/start-nginx.sh
-```
-
-### 4. Access BitNest Securely
-
-Now you can access BitNest via HTTPS:
-- Local: `https://your-device-ip:443`
-- Remote: `https://your-public-ip:443` (if port forwarded)
-
-> **Note**: Browsers will show a warning about the self-signed certificate. This is normal. You'll need to add an exception to proceed.
-
-## Automatic Updates
-
-BitNest is configured to automatically update every Sunday at 5:00 AM:
-
-### Schedule Status
-
-Check if automatic updates are scheduled:
-
-```bash
-# View crontab entries
-crontab -l
-```
-
-### Manual Update
-
-If you want to update manually:
-
-```bash
-# Run the update script
-~/bitnest/scripts/update.sh
-```
-
-### Update Strategy
-
-- **dev** branch: Development and testing (may be unstable)
-- **test** branch: Feature testing
-- **main** branch: Stable release
-- **backup** branch: One version behind main for recovery
-
-The automatic updates will:
-1. Back up your current installation
-2. Check for updates in the main branch
-3. Apply the updates
-4. Verify everything works properly
-5. Automatically roll back if any problems occur
 
 ## Troubleshooting
 
-### Connection Issues
-
-If you can't connect to BitNest:
-
-```bash
-# Check if BitNest is running
-pm2 status
-
-# Restart if needed
-pm2 restart bitnest
-
-# Check logs for errors
-pm2 logs bitnest
-```
-
-### MongoDB Connection Errors
-
-If you see database connection errors:
-
-```bash
-# Verify your MongoDB URI in .env.local
-nano ~/bitnest/.env.local
-
-# Check MongoDB Atlas network access settings
-# Make sure your IP address is whitelisted
-```
-
-### Reset Application
-
-If you need to start fresh:
-
-```bash
-# Stop the application
-pm2 stop bitnest
-
-# Remove the database
-cd ~/bitnest
-rm -rf .next
-
-# Rebuild
-npm run build
-
-# Restart
-pm2 start bitnest
-```
-
-### SSL Certificate Issues
-
-If SSL isn't working:
-
-```bash
-# Regenerate certificates
-cd ~/bitnest
-./scripts/ssl-setup.sh your-ip-address
-
-# Restart NGINX
-pkill nginx
-~/bitnest/start-nginx.sh
-```
-
----
-
-<div align="center">
-  <p>For more information, visit the <a href="https://github.com/Harry-jain/BitNest">BitNest GitHub repository</a>.</p>
-</div> 
+- **Storage Permission Issues**: Run `termux-setup-storage` in Termux
+- **App Won't Start**: Check that your .env.local file has the correct values
+- **Can't Sign Up**: Ensure Supabase authentication is enabled (Email provider)
+- **Performance Issues**: Reduce the number of active Termux sessions and close background apps 
