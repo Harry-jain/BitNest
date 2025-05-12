@@ -1,4 +1,5 @@
 import { MongoClient, ServerApiVersion, ObjectId } from 'mongodb';
+import { hash, compare } from 'bcrypt';
 
 if (!process.env.MONGODB_URI) {
   throw new Error('Please add your MongoDB URI to .env file');
@@ -60,6 +61,91 @@ export interface MongoDBCollections {
     status: string;
     processingStarted?: Date;
   };
+}
+
+// MongoDB types
+export interface User {
+  _id?: ObjectId;
+  email: string;
+  password: string;
+  name: string;
+  createdAt: Date;
+  lastLoginAt?: Date;
+}
+
+export interface FileManifest {
+  _id?: string; // UUID string
+  name: string;
+  size: number;
+  type: string;
+  chunks: string[]; // Array of chunk hashes
+  userId: ObjectId;
+  createdAt: Date;
+  modifiedAt: Date;
+}
+
+export interface VideoMetadata {
+  _id?: ObjectId;
+  title: string;
+  description?: string;
+  duration: number;
+  format: string;
+  qualities: string[];
+  thumbnailPath?: string;
+  fileId: string; // UUID string reference to FileManifest
+  userId: ObjectId;
+  createdAt: Date;
+  modifiedAt: Date;
+}
+
+// Authentication functions
+export async function registerUser(email: string, password: string, name: string): Promise<User> {
+  const client = await clientPromise;
+  const db = client.db();
+
+  // Check if user already exists
+  const existingUser = await db.collection('users').findOne({ email });
+  if (existingUser) {
+    throw new Error('User already exists');
+  }
+
+  // Hash password
+  const hashedPassword = await hash(password, 10);
+
+  const newUser = {
+    email,
+    password: hashedPassword,
+    name,
+    createdAt: new Date(),
+  };
+
+  const result = await db.collection('users').insertOne(newUser);
+  return { ...newUser, _id: result.insertedId };
+}
+
+export async function loginUser(email: string, password: string): Promise<User> {
+  const client = await clientPromise;
+  const db = client.db();
+
+  // Find user
+  const user = await db.collection('users').findOne({ email });
+  if (!user) {
+    throw new Error('Invalid credentials');
+  }
+
+  // Verify password
+  const isValid = await compare(password, user.password);
+  if (!isValid) {
+    throw new Error('Invalid credentials');
+  }
+
+  // Update last login
+  await db.collection('users').updateOne(
+    { _id: user._id },
+    { $set: { lastLoginAt: new Date() } }
+  );
+
+  return user as User;
 }
 
 // Export a module-scoped MongoClient promise. By doing this in a
