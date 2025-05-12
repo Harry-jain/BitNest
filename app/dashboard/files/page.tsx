@@ -3,8 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '@/app/lib/firebase';
+import { getCurrentUser } from '@/app/lib/supabase';
 
 type FileItem = {
   id: string;
@@ -59,18 +58,25 @@ export default function Files() {
   const router = useRouter();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setUser(user);
-        // In a real implementation, we would fetch files from the server
-        setFiles(mockFiles);
-      } else {
+    async function checkAuth() {
+      try {
+        const currentUser = await getCurrentUser();
+        if (currentUser) {
+          setUser(currentUser);
+          // In a real implementation, we would fetch files from the server
+          setFiles(mockFiles);
+        } else {
+          router.push('/auth/login');
+        }
+      } catch (error) {
+        console.error('Error checking auth:', error);
         router.push('/auth/login');
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
-    });
+    }
 
-    return () => unsubscribe();
+    checkAuth();
   }, [router]);
 
   const formatFileSize = (bytes: number) => {
@@ -126,12 +132,9 @@ export default function Files() {
             </Link>
           </nav>
           <div className="flex items-center space-x-4">
-            <button
-              onClick={() => auth.signOut()}
-              className="text-sm font-medium text-gray-600 hover:text-primary"
-            >
+            <Link href="/auth/logout" className="text-sm font-medium text-gray-600 hover:text-primary">
               Sign Out
-            </button>
+            </Link>
           </div>
         </div>
       </header>
