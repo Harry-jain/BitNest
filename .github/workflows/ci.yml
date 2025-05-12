@@ -1,0 +1,61 @@
+name: BitNest CI/CD
+
+on:
+  push:
+    branches: [ dev, test, main, backup ]
+  pull_request:
+    branches: [ dev, test, main, backup ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x]
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run linting
+      run: npm run lint
+      
+    - name: Build
+      run: npm run build
+      
+    # Add testing step when tests are implemented
+    # - name: Test
+    #   run: npm test
+
+  notify:
+    needs: build
+    if: failure() && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Send notification on main branch failure
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 465
+        username: ${{ secrets.MAIL_USERNAME }}
+        password: ${{ secrets.MAIL_PASSWORD }}
+        subject: "⚠️ BitNest update failed"
+        body: |
+          The latest update to the main branch has failed during CI/CD.
+          
+          The automatic update system will revert to the backup branch.
+          
+          Please check the logs at:
+          https://github.com/Harry-jain/BitNest/actions
+        to: admin@example.com
+        from: BitNest CI/CD 
