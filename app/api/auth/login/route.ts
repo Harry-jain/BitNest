@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { loginUser } from '@/app/lib/mongodb';
+import { signIn } from '@/app/lib/supabase';
 import { cookies } from 'next/headers';
-import { sign } from 'jsonwebtoken';
-
-// JWT secret
-const JWT_SECRET = process.env.NEXTAUTH_SECRET || 'your-default-secret-do-not-use-in-production';
 
 export async function POST(request: NextRequest) {
     try {
@@ -20,40 +16,47 @@ export async function POST(request: NextRequest) {
 
         // Authenticate user
         try {
-            const user = await loginUser(email, password);
+            const { user, session, error } = await signIn(email, password);
 
-            // Generate JWT token
-            const token = sign(
-                {
-                    userId: user._id?.toString(),
-                    email: user.email,
-                    name: user.name
-                },
-                JWT_SECRET,
-                { expiresIn: '7d' }
-            );
+            if (error) {
+                return NextResponse.json(
+                    { message: error.message || 'Authentication failed' },
+                    { status: 401 }
+                );
+            }
 
-            // Set cookie
-            cookies().set({
-                name: 'bitnest_auth',
-                value: token,
-                httpOnly: true,
-                path: '/',
-                secure: process.env.NODE_ENV === 'production',
-                maxAge: 60 * 60 * 24 * 7, // 7 days
-            });
+            if (!session) {
+                return NextResponse.json(
+                    { message: 'Failed to create session' },
+                    { status: 401 }
+                );
+            }
 
-            return NextResponse.json(
+            // Create response
+            const response = NextResponse.json(
                 {
                     message: 'Login successful',
                     user: {
-                        id: user._id,
-                        email: user.email,
-                        name: user.name
+                        id: user?.id,
+                        email: user?.email,
+                        name: user?.name
                     }
                 },
                 { status: 200 }
             );
+
+            // Set the session token in the cookie
+            response.cookies.set({
+                name: 'sb-auth-token',
+                value: session.access_token,
+                httpOnly: true,
+                path: '/',
+                secure: process.env.NODE_ENV === 'production',
+                maxAge: 60 * 60 * 24 * 7, // 7 days
+                sameSite: 'strict',
+            });
+
+            return response;
         } catch (err: any) {
             return NextResponse.json(
                 { message: err.message || 'Authentication failed' },

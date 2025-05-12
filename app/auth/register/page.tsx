@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { signUp } from '@/app/lib/supabase';
 
 export default function Register() {
     const [name, setName] = useState('');
@@ -18,17 +19,19 @@ export default function Register() {
         setError('');
 
         try {
-            const response = await fetch('/api/auth/register', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ name, email, password }),
-            });
+            // Validate password strength
+            if (password.length < 8) {
+                throw new Error('Password must be at least 8 characters long');
+            }
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || 'Registration failed');
+            const { user, session, error } = await signUp(email, password, name);
+
+            if (error) {
+                throw new Error(error.message || 'Registration failed');
+            }
+
+            if (!session) {
+                throw new Error('Failed to create session');
             }
 
             // Registration successful, redirect to dashboard

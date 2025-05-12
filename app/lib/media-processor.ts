@@ -75,7 +75,7 @@ export async function getCpuTemperature(): Promise<number | null> {
 export async function throttleBasedOnTemp(options: EncodingOptions): Promise<EncodingOptions> {
   const temp = await getCpuTemperature();
   const newOptions = { ...options };
-  
+
   if (temp !== null) {
     if (temp > 75) {
       // Very hot - use ultrafast preset and reduce resolution
@@ -87,7 +87,7 @@ export async function throttleBasedOnTemp(options: EncodingOptions): Promise<Enc
       newOptions.preset = 'faster';
     }
   }
-  
+
   return newOptions;
 }
 
@@ -107,10 +107,10 @@ export async function encodeToH265(
   if (!(await checkFFmpeg())) {
     throw new Error('FFmpeg is not available');
   }
-  
+
   // Apply temperature-based throttling
   const adjustedOptions = await throttleBasedOnTemp(options);
-  
+
   // Build FFmpeg command
   const ffmpegCmd = [
     'ffmpeg',
@@ -127,7 +127,7 @@ export async function encodeToH265(
     '-y',                             // Overwrite output
     `"${outputPath}"`
   ].join(' ');
-  
+
   // Execute FFmpeg command
   await execAsync(ffmpegCmd);
 }
@@ -150,65 +150,76 @@ export async function generateHLS(
   if (!(await checkFFmpeg())) {
     throw new Error('FFmpeg is not available');
   }
-  
+
   // Make sure output directory exists
   const hlsVideoDir = path.join(outputDir, videoName);
   await fs.mkdir(hlsVideoDir, { recursive: true });
-  
+
   // Apply temperature-based throttling
   const adjustedOptions = await throttleBasedOnTemp(options);
-  
+
   // Define quality variants for adaptive streaming
   const variants = [
     { height: 480, bitrate: 800 },   // 480p - Low quality
     { height: 720, bitrate: 1500 },  // 720p - Medium quality
     { height: 1080, bitrate: 2500 }, // 1080p - High quality (if original is high enough)
   ];
-  
+
   // Create a master playlist
   let masterPlaylist = '#EXTM3U\n#EXT-X-VERSION:3\n';
-  
+
+  // Get the width to use for calculations with fallback to default
+  const baseWidth = adjustedOptions.width ?? DEFAULT_OPTIONS.width ?? 1280;
+
   // Generate streams for each quality variant
   for (const variant of variants) {
     // Skip variants higher than original resolution (using adjusted width as reference)
-    if (variant.height > (adjustedOptions.width || DEFAULT_OPTIONS.width) * 9 / 16) continue;
-    
+    if (variant.height > (baseWidth * 9 / 16)) continue;
+
     const variantDir = path.join(hlsVideoDir, `${variant.height}p`);
     await fs.mkdir(variantDir, { recursive: true });
-    
+
     const variantOutput = path.join(variantDir, 'stream.m3u8');
-    
+
+    // Get preset and CRF with fallbacks to default values
+    const preset = adjustedOptions.preset ?? DEFAULT_OPTIONS.preset ?? 'fast';
+    const crf = adjustedOptions.crf ?? DEFAULT_OPTIONS.crf ?? 28;
+    const segmentDuration = adjustedOptions.segmentDuration ?? DEFAULT_OPTIONS.segmentDuration ?? 5;
+
     // Build FFmpeg command for this variant
     const ffmpegCmd = [
       'ffmpeg',
       '-i', `"${inputPath}"`,
       '-c:v', 'libx265',               // H.265/HEVC codec
-      '-preset', adjustedOptions.preset || DEFAULT_OPTIONS.preset,
-      '-crf', adjustedOptions.crf || DEFAULT_OPTIONS.crf,
+      '-preset', preset,
+      '-crf', crf,
       '-maxrate', `${variant.bitrate}k`,
       '-bufsize', `${variant.bitrate * 2}k`,
       '-vf', `scale=-2:${variant.height}`,
       '-c:a', 'aac',
       '-b:a', '128k',
-      '-hls_time', adjustedOptions.segmentDuration || DEFAULT_OPTIONS.segmentDuration,
+      '-hls_time', segmentDuration,
       '-hls_playlist_type', 'vod',
       '-hls_segment_filename', `"${path.join(variantDir, 'segment%03d.ts')}"`,
       '-y',
       `"${variantOutput}"`
     ].join(' ');
-    
+
     // Execute FFmpeg command
     await execAsync(ffmpegCmd);
-    
+
+    // Calculate the width based on the aspect ratio (16:9)
+    const aspectWidth = Math.round((variant.height * 16) / 9);
+
     // Add this variant to the master playlist
-    masterPlaylist += `#EXT-X-STREAM-INF:BANDWIDTH=${variant.bitrate * 1000},RESOLUTION=${variant.height * 16 / 9}x${variant.height}\n`;
+    masterPlaylist += `#EXT-X-STREAM-INF:BANDWIDTH=${variant.bitrate * 1000},RESOLUTION=${aspectWidth}x${variant.height}\n`;
     masterPlaylist += `${variant.height}p/stream.m3u8\n`;
   }
-  
+
   // Write master playlist
   const masterPlaylistPath = path.join(hlsVideoDir, 'master.m3u8');
   await fs.writeFile(masterPlaylistPath, masterPlaylist);
-  
+
   return masterPlaylistPath;
 }
 
@@ -224,16 +235,16 @@ export async function processVideoForStreaming(
 ): Promise<string> {
   const videoName = path.basename(videoPath, path.extname(videoPath));
   const encodedPath = path.join(VIDEOS_PATH, `${videoName}_encoded.mp4`);
-  
+
   // Make sure directories exist
   await fs.mkdir(VIDEOS_PATH, { recursive: true });
   await fs.mkdir(HLS_PATH, { recursive: true });
-  
+
   // Step 1: Encode to H.265
   await encodeToH265(videoPath, encodedPath, options);
-  
+
   // Step 2: Generate HLS segments and playlists
   const hlsPath = await generateHLS(encodedPath, HLS_PATH, videoName, options);
-  
+
   return hlsPath;
 } 
